@@ -2,7 +2,7 @@
   "name": "giftpropaganda-frontend",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://miroslav-mobydev.github.io/gift-propaganda1",
+  "homepage": "https://grg-core.github.io/Gift-propaganda2",
   "dependencies": {
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
