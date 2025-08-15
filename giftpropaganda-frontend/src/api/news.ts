@@ -58,39 +58,31 @@ const checkAPIHealth = async (url: string): Promise<boolean> => {
 
 // Функция для инициализации API
 const initializeAPI = async () => {
-  // Принудительно используем локальный API для разработки
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
     try {
       const localHealth = await checkAPIHealth(API_CONFIG.LOCAL);
       apiHealth.local = localHealth;
-
       if (localHealth) {
         currentAPI = API_CONFIG.LOCAL;
-        console.log('✅ Используем локальный API:', currentAPI);
       } else {
-        console.log('❌ Локальный API недоступен, пробуем продакшн');
         const prodHealth = await checkAPIHealth(API_CONFIG.PROD);
         apiHealth.prod = prodHealth;
-
         if (prodHealth) {
           currentAPI = API_CONFIG.PROD;
-          console.log('✅ Используем продакшн API:', currentAPI);
         } else {
-          currentAPI = API_CONFIG.LOCAL;
-          console.log('⚠️ Используем локальный API (fallback):', currentAPI);
+          currentAPI = API_CONFIG.PROD; // fallback только на продакшн
         }
       }
     } catch (error: any) {
-      currentAPI = API_CONFIG.LOCAL;
-      console.log('⚠️ Ошибка инициализации API, используем локальный:', currentAPI);
+      currentAPI = API_CONFIG.PROD;
     }
   } else {
-    const prodHealth = await checkAPIHealth(API_CONFIG.PROD);
-    apiHealth.prod = prodHealth;
+    // Для любого не-локального хоста всегда используем только HTTPS-продакшн API
     currentAPI = API_CONFIG.PROD;
+    apiHealth.prod = true;
+    apiHealth.local = false;
   }
 };
-
 // Функция для выполнения запроса с retry
 const executeWithRetry = async <T>(
   requestFn: () => Promise<T>,
