@@ -1,29 +1,28 @@
 import axios from 'axios';
 import { NewsItem } from '../types';
 
-// Конфигурация API
+
 const API_CONFIG = {
-  LOCAL: 'http://localhost:8000/api/news',
-  LOCAL_PROD: 'http://localhost:8001/api/news',
-  PROD: 'https://gift-propaganda-cf8i.onrender.com/api/news',
-  GITHUB_PAGES: 'local', // Используем локальный API для GitHub Pages
-  TIMEOUT: 10000,
-  RETRY_ATTEMPTS: 3,
-  RETRY_DELAY: 1000
+  LOCAL: 'http://localhost:8000/api/news/',
+  LOCAL_PROD: 'http://localhost:3001/api/news/',
+  PROD: 'https://gift-propaganda-cf8i.onrender.com/api/news/',
+  TIMEOUT: 3000,
+  RETRY_ATTEMPTS: 1,
+  RETRY_DELAY: 300
 };
 
-// Состояние API
-let currentAPI = API_CONFIG.LOCAL;
+
+let currentAPI = API_CONFIG.PROD;
 let apiHealth = {
   local: false,
   prod: false
 };
 
-// Кэш для хранения данных
+
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 минут
 
-// Функция для получения данных из кэша
+
 const getFromCache = (key: string) => {
   const cached = cache.get(key);
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
@@ -32,58 +31,69 @@ const getFromCache = (key: string) => {
   return null;
 };
 
-// Функция для сохранения данных в кэш
+
 const setCache = (key: string, data: any) => {
   cache.set(key, { data, timestamp: Date.now() });
 };
 
-// Функция для задержки
+
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Функция для проверки здоровья API
+
 const checkAPIHealth = async (url: string): Promise<boolean> => {
   try {
     const response = await axios.get(url + '?limit=1', {
-      timeout: 3000,
+      timeout: 1500,
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       }
     });
     return response.status === 200;
-  } catch {
+  } catch (error: any) {
     return false;
   }
 };
 
-// Функция для инициализации API
+
 const initializeAPI = async () => {
   if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
     try {
       const localHealth = await checkAPIHealth(API_CONFIG.LOCAL);
       apiHealth.local = localHealth;
+
       if (localHealth) {
         currentAPI = API_CONFIG.LOCAL;
       } else {
-        const prodHealth = await checkAPIHealth(API_CONFIG.PROD);
-        apiHealth.prod = prodHealth;
-        if (prodHealth) {
-          currentAPI = API_CONFIG.PROD;
+        const localProdHealth = await checkAPIHealth(API_CONFIG.LOCAL_PROD);
+        if (localProdHealth) {
+          currentAPI = API_CONFIG.LOCAL_PROD;
         } else {
-          currentAPI = API_CONFIG.PROD; // fallback только на продакшн
+          const prodHealth = await checkAPIHealth(API_CONFIG.PROD);
+          apiHealth.prod = prodHealth;
+
+          if (prodHealth) {
+            currentAPI = API_CONFIG.PROD;
+          } else {
+            currentAPI = API_CONFIG.LOCAL;
+          }
         }
       }
     } catch (error: any) {
-      currentAPI = API_CONFIG.PROD;
+      currentAPI = API_CONFIG.LOCAL;
     }
   } else {
-    // Для любого не-локального хоста всегда используем только HTTPS-продакшн API
-    currentAPI = API_CONFIG.PROD;
-    apiHealth.prod = true;
-    apiHealth.local = false;
+    try {
+      const prodHealth = await checkAPIHealth(API_CONFIG.PROD);
+      apiHealth.prod = prodHealth;
+      currentAPI = API_CONFIG.PROD;
+    } catch (error: any) {
+      currentAPI = API_CONFIG.PROD;
+    }
   }
 };
-// Функция для выполнения запроса с retry
+
+
 const executeWithRetry = async <T>(
   requestFn: () => Promise<T>,
   retries: number = API_CONFIG.RETRY_ATTEMPTS
@@ -94,12 +104,6 @@ const executeWithRetry = async <T>(
     } catch (error: any) {
       if (attempt === retries) {
         throw error;
-      }
-      
-      if (currentAPI === API_CONFIG.LOCAL && apiHealth.prod) {
-        currentAPI = API_CONFIG.PROD;
-      } else if (currentAPI === API_CONFIG.PROD && apiHealth.local) {
-        currentAPI = API_CONFIG.LOCAL;
       }
       
       await delay(API_CONFIG.RETRY_DELAY * attempt);
@@ -126,27 +130,11 @@ export const fetchNews = async (
   useCache: boolean = true
 ): Promise<NewsResponse> => {
   try {
-    console.log('🔍 Загружаем новости:', { category, page, limit });
-    
-    // Проверяем, находимся ли мы на GitHub Pages
-    if (window.location.hostname.includes('github.io')) {
-      console.log('🌐 Используем локальный API для GitHub Pages');
-      
-      if (window.API) {
-        const result = await window.API.getNews(category, page, limit);
-        console.log('✅ Получены новости через локальный API:', result.data?.length || 0, 'шт.');
-        return result;
-      }
-    }
-    
-    console.log('🔍 Текущий API:', currentAPI);
-    
     const cacheKey = `news_${category || 'all'}_${page}_${limit}`;
     
     if (useCache) {
       const cachedData = getFromCache(cacheKey);
       if (cachedData) {
-        console.log('📦 Используем кэшированные новости');
         return cachedData;
       }
     }
@@ -157,51 +145,25 @@ export const fetchNews = async (
     params.append('offset', ((page - 1) * limit).toString());
 
     const url = `${currentAPI}?${params.toString()}`;
-    console.log('🔍 URL запроса новостей:', url);
 
     const response = await executeWithRetry(async () => {
       return await axios.get<NewsResponse>(url, {
         headers: {
-          'ngrok-skip-browser-warning': 'true',
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache'
+          'Accept': 'application/json'
         },
         timeout: API_CONFIG.TIMEOUT
       });
     });
 
-    console.log('✅ Получены новости:', response.data.data?.length || 0, 'шт.');
-    console.log('✅ Первая новость:', response.data.data?.[0]?.title);
-    
     if (useCache) {
       setCache(cacheKey, response.data);
     }
     
     return response.data;
   } catch (error: any) {
-    console.error('❌ Ошибка при загрузке новостей:', error.message);
-    console.error('❌ Текущий API:', currentAPI);
-    
-    const fallbackData: NewsResponse = {
-      data: [
-        {
-          id: 1,
-          title: "📰 Новости временно недоступны",
-          content: "Мы работаем над восстановлением сервиса. Попробуйте позже.",
-          content_html: "<p>Мы работаем над восстановлением сервиса. Попробуйте позже.</p>",
-          link: "#",
-          publish_date: new Date().toISOString(),
-          category: "general",
-          media: []
-        }
-      ],
-      total: 1,
-      page: 1,
-      pages: 1
-    };
-
-    return fallbackData;
+    console.error('API Error:', error.message, 'URL:', currentAPI);
+    throw error;
   }
 };
 
@@ -210,12 +172,10 @@ export const fetchNewsById = async (id: number): Promise<NewsItem> => {
     const cacheKey = `news_item_${id}`;
     const cachedData = getFromCache(cacheKey);
     if (cachedData) {
-      console.log('📦 Используем кэшированные данные для новости', id);
       return cachedData;
     }
 
-    const url = `${currentAPI}/${id}`;
-    console.log('🔍 Запрашиваем новость:', url);
+    const url = `${currentAPI}${id}`;
     
     const response = await executeWithRetry(async () => {
       return await axios.get<NewsItem>(url, {
@@ -229,11 +189,9 @@ export const fetchNewsById = async (id: number): Promise<NewsItem> => {
 
     });
 
-    console.log('✅ Получена новость:', response.data.id, 'content_html длина:', response.data.content_html?.length || 0);
     setCache(cacheKey, response.data);
     return response.data;
   } catch (error: any) {
-    console.error('❌ Ошибка при получении новости:', error.message);
     throw new Error('Не удалось загрузить новость');
   }
 };
