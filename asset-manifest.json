@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/Gift-propaganda2/static/css/main.e6c13ad2.css",
+    "main.js": "/Gift-propaganda2/static/js/main.eb2907ad.js",
+    "static/js/453.bd8c6ad7.chunk.js": "/Gift-propaganda2/static/js/453.bd8c6ad7.chunk.js",
+    "index.html": "/Gift-propaganda2/index.html",
+    "main.e6c13ad2.css.map": "/Gift-propaganda2/static/css/main.e6c13ad2.css.map",
+    "main.eb2907ad.js.map": "/Gift-propaganda2/static/js/main.eb2907ad.js.map",
+    "453.bd8c6ad7.chunk.js.map": "/Gift-propaganda2/static/js/453.bd8c6ad7.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.e6c13ad2.css",
+    "static/js/main.eb2907ad.js"
+  ]
+}
