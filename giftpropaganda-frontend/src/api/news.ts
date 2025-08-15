@@ -5,7 +5,7 @@ import { NewsItem } from '../types';
 const API_CONFIG = {
   LOCAL: 'http://localhost:8000/api/news',
   LOCAL_PROD: 'http://localhost:8001/api/news',
-  PROD: 'https://giftpropaganda.onrender.com/api/news',
+  PROD: 'https://gift-propaganda-cf8i.onrender.com/api/news',
   GITHUB_PAGES: 'local', // Используем локальный API для GitHub Pages
   TIMEOUT: 10000,
   RETRY_ATTEMPTS: 3,

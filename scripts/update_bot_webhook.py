@@ -14,7 +14,7 @@ def update_bot_webhook():
     token = "8429342375:AAFl55U3d2jiq3bm4UNTyDrbB0rztFTio2I"
     
     # URL для webhook (локальный для тестирования)
-    webhook_url = "https://giftpropaganda.onrender.com/webhook"
+    webhook_url = "https://gift-propaganda-cf8i.onrender.com/webhook"
     
     try:
         # Получаем текущий webhook
