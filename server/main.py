@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 def init_db():
     """Инициализация базы данных с повторными попытками"""
     # Проверяем переменные окружения
-    database_url = os.getenv('DATABASE_URL', 'postgresql://news_db_bnnu_user:QkbkVviv0rOOKW2LIXh2tkelyDICRLXv@dpg-d22i993e5dus739mr8n0-a.oregon-postgres.render.com/news_db_bnnu')
+    database_url = os.getenv('DATABASE_URL', 'postgresql://giftpropaganda_db_9f8b_user:1d49e4eYc6zLSzZ5yYl17CZJn7sgpUIV@dpg-d2fkuo2dbo4c73bd4vh0-a/giftpropaganda_db_9f8b')
     token = os.getenv('TOKEN')
     webhook_url = os.getenv('WEBHOOK_URL')
 
