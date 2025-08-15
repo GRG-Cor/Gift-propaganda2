@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: giftpropaganda-api
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: giftpropaganda-db
+          property: connectionString
+      - key: TOKEN
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.12.0
+
+databases:
+  - name: giftpropaganda-db
+    databaseName: giftpropaganda
+    user: giftpropaganda 
