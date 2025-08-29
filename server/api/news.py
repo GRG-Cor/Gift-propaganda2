@@ -5,8 +5,9 @@ from typing import List, Optional
 from datetime import datetime
 import logging
 
-from server.db import get_db, NewsItem, NewsSource, recreate_engine, recreate_models
-from server.models import NewsResponse, NewsItemResponse, MediaItem, NewsSourceResponse
+from db import get_db, NewsItem, NewsSource, recreate_engine, recreate_models
+from models import NewsResponse, NewsItemResponse, MediaItem, NewsSourceResponse
+from services.auto_publisher import auto_publisher  # Импортируем сервис автопубликации
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +257,45 @@ async def get_news_item(
     except Exception as e:
         logger.error(f"Ошибка при получении новости {news_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении новости: {str(e)}")
+
+
+@router.post("/news/{news_id}/publish")
+async def publish_news_to_channel(
+        news_id: int,
+        db: Session = Depends(get_db)
+):
+    """Публикует новость в Telegram канал"""
+    try:
+        # Получаем новость
+        news_item = db.query(NewsItem).filter(NewsItem.id == news_id).first()
+        if not news_item:
+            raise HTTPException(status_code=404, detail="Новость не найдена")
+        
+        # Проверяем, не опубликована ли уже
+        if news_item.is_published_to_channel:
+            return {
+                "message": "Новость уже опубликована в канале",
+                "telegram_message_id": news_item.telegram_message_id,
+                "published_at": news_item.published_to_channel_at.isoformat() if news_item.published_to_channel_at else None
+            }
+        
+        # Публикуем в канал
+        message_id = await auto_publisher.publish_news_to_channel(news_item)
+        
+        if message_id:
+            return {
+                "message": "Новость успешно опубликована в канал",
+                "telegram_message_id": message_id,
+                "news_id": news_id
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Не удалось опубликовать новость в канал")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при публикации новости {news_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при публикации новости: {str(e)}")
 
 
 @router.get("/categories/")

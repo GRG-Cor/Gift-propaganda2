@@ -1,279 +1,406 @@
 #!/usr/bin/env python3
 """
-Telegram Bot для Gift Propaganda News
+Telegram Bot для новостного агрегатора
 """
 
 import logging
 import requests
-from typing import Dict, List, Optional
-from server.config import TOKEN, WEBHOOK_URL
-from server.db import get_db_session
-from server.db import NewsItem, NewsSource
-from sqlalchemy.orm import Session
-from sqlalchemy import func
+from typing import List, Dict, Any, Optional
+from config import TOKEN, WEBHOOK_URL
+from db import get_db_session, NewsItem, NewsSource
+from parsers.telegram_news_service import TelegramNewsService
 
 logger = logging.getLogger(__name__)
 
 class TelegramBot:
     def __init__(self):
         self.token = TOKEN
-        self.base_url = f"https://api.telegram.org/bot{self.token}"
+        self.webhook_url = WEBHOOK_URL
+        self.news_service = TelegramNewsService()
         
-    def send_message(self, chat_id: int, text: str, parse_mode: str = "HTML") -> bool:
-        """Отправка сообщения в Telegram"""
+    def send_message(self, chat_id: int, text: str, parse_mode: str = "HTML"):
+        """Отправка сообщения в чат"""
         try:
-            url = f"{self.base_url}/sendMessage"
+            url = f"https://api.telegram.org/bot{self.token}/sendMessage"
             data = {
                 "chat_id": chat_id,
                 "text": text,
                 "parse_mode": parse_mode
             }
-            response = requests.post(url, json=data, timeout=10)
-            return response.status_code == 200
+            
+            response = requests.post(url, data=data, timeout=10)
+            if response.status_code == 200:
+                logger.info(f"Сообщение отправлено в чат {chat_id}")
+                return True
+            else:
+                logger.error(f"Ошибка отправки сообщения: {response.text}")
+                return False
+                
         except Exception as e:
             logger.error(f"Ошибка отправки сообщения: {e}")
             return False
     
-    def send_photo(self, chat_id: int, photo_url: str, caption: str = "", parse_mode: str = "HTML") -> bool:
-        """Отправка фото в Telegram"""
+    def send_news_with_media(self, chat_id: int, news_id: int):
+        """Отправка новости с медиа"""
         try:
-            url = f"{self.base_url}/sendPhoto"
+            db = get_db_session()
+            news_item = db.query(NewsItem).filter(NewsItem.id == news_id).first()
+            
+            if not news_item:
+                self.send_message(chat_id, "❌ Новость не найдена")
+                return
+            
+            # Формируем текст новости
+            text = f"""
+📰 <b>{news_item.title}</b>
+
+{news_item.content[:500]}{'...' if len(news_item.content) > 500 else ''}
+
+📅 Дата: {news_item.publish_date.strftime('%d.%m.%Y %H:%M')}
+🏷️ Категория: {news_item.category}
+👤 Автор: {news_item.author or 'Не указан'}
+
+🔗 <a href="{news_item.link}">Читать полностью</a>
+"""
+            
+            # Отправляем с медиа если есть
+            if news_item.image_url:
+                self.send_photo(chat_id, news_item.image_url, text)
+            elif news_item.video_url:
+                self.send_video(chat_id, news_item.video_url, text)
+            else:
+                self.send_message(chat_id, text)
+                
+        except Exception as e:
+            logger.error(f"Ошибка отправки новости: {e}")
+            self.send_message(chat_id, "❌ Ошибка отправки новости")
+        finally:
+            if 'db' in locals():
+                db.close()
+    
+    def send_photo(self, chat_id: int, photo_url: str, caption: str = ""):
+        """Отправка фото"""
+        try:
+            url = f"https://api.telegram.org/bot{self.token}/sendPhoto"
             data = {
                 "chat_id": chat_id,
                 "photo": photo_url,
                 "caption": caption,
-                "parse_mode": parse_mode
+                "parse_mode": "HTML"
             }
-            response = requests.post(url, json=data, timeout=10)
-            return response.status_code == 200
+            
+            response = requests.post(url, data=data, timeout=10)
+            if response.status_code == 200:
+                logger.info(f"Фото отправлено в чат {chat_id}")
+                return True
+            else:
+                logger.error(f"Ошибка отправки фото: {response.text}")
+                return False
+                
         except Exception as e:
             logger.error(f"Ошибка отправки фото: {e}")
             return False
     
-    def send_media_group(self, chat_id: int, media: List[Dict]) -> bool:
-        """Отправка группы медиа в Telegram"""
+    def send_video(self, chat_id: int, video_url: str, caption: str = ""):
+        """Отправка видео"""
         try:
-            url = f"{self.base_url}/sendMediaGroup"
+            url = f"https://api.telegram.org/bot{self.token}/sendVideo"
             data = {
                 "chat_id": chat_id,
-                "media": media
+                "video": video_url,
+                "caption": caption,
+                "parse_mode": "HTML"
             }
-            response = requests.post(url, json=data, timeout=10)
-            return response.status_code == 200
+            
+            response = requests.post(url, data=data, timeout=10)
+            if response.status_code == 200:
+                logger.info(f"Видео отправлено в чат {chat_id}")
+                return True
+            else:
+                logger.error(f"Ошибка отправки видео: {response.text}")
+                return False
+                
         except Exception as e:
-            logger.error(f"Ошибка отправки медиа группы: {e}")
+            logger.error(f"Ошибка отправки видео: {e}")
             return False
     
-    def send_inline_keyboard(self, chat_id: int, text: str, keyboard: List[List[Dict]]) -> bool:
-        """Отправка сообщения с inline клавиатурой"""
-        try:
-            url = f"{self.base_url}/sendMessage"
-            data = {
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "reply_markup": {
-                    "inline_keyboard": keyboard
-                }
-            }
-            response = requests.post(url, json=data, timeout=10)
-            return response.status_code == 200
-        except Exception as e:
-            logger.error(f"Ошибка отправки клавиатуры: {e}")
-            return False
-    
-    def get_news_summary(self, limit: int = 5) -> str:
-        """Получение сводки новостей"""
-        try:
-            with get_db_session() as session:
-                news_items = session.query(NewsItem).order_by(NewsItem.publish_date.desc()).limit(limit).all()
-                
-                if not news_items:
-                    return "📰 Новостей пока нет"
-                
-                summary = f"📰 <b>Последние {len(news_items)} новостей:</b>\n\n"
-                
-                for i, news in enumerate(news_items, 1):
-                    # Ограничиваем длину заголовка
-                    title = news.title[:50] + "..." if len(news.title) > 50 else news.title
-                    source = news.source.name if news.source else "Unknown"
-                    category = news.category or "general"
-                    
-                    summary += f"{i}. <b>{title}</b>\n"
-                    summary += f"   📍 {source} | #{category}\n"
-                    summary += f"   📅 {news.publish_date.strftime('%d.%m.%Y %H:%M')}\n\n"
-                
-                return summary
-        except Exception as e:
-            logger.error(f"Ошибка получения сводки новостей: {e}")
-            return "❌ Ошибка получения новостей"
-    
-    def get_news_by_category(self, category: str, limit: int = 5) -> str:
-        """Получение новостей по категории"""
-        try:
-            with get_db_session() as session:
-                news_items = session.query(NewsItem).filter(
-                    NewsItem.category == category
-                ).order_by(NewsItem.publish_date.desc()).limit(limit).all()
-                
-                if not news_items:
-                    return f"📰 Новостей в категории #{category} пока нет"
-                
-                summary = f"📰 <b>Новости #{category}:</b>\n\n"
-                
-                for i, news in enumerate(news_items, 1):
-                    title = news.title[:50] + "..." if len(news.title) > 50 else news.title
-                    source = news.source.name if news.source else "Unknown"
-                    
-                    summary += f"{i}. <b>{title}</b>\n"
-                    summary += f"   📍 {source}\n"
-                    summary += f"   📅 {news.publish_date.strftime('%d.%m.%Y %H:%M')}\n\n"
-                
-                return summary
-        except Exception as e:
-            logger.error(f"Ошибка получения новостей по категории: {e}")
-            return f"❌ Ошибка получения новостей #{category}"
-    
-    def get_news_stats(self) -> str:
-        """Получение статистики новостей"""
-        try:
-            with get_db_session() as session:
-                total_news = session.query(NewsItem).count()
-                
-                # Статистика по категориям
-                categories = session.query(NewsItem.category, func.count(NewsItem.id)).group_by(NewsItem.category).all()
-                
-                stats = f"📊 <b>Статистика новостей:</b>\n\n"
-                stats += f"📰 Всего новостей: <b>{total_news}</b>\n\n"
-                
-                if categories:
-                    stats += "📈 По категориям:\n"
-                    for category, count in categories:
-                        if category:
-                            stats += f"   #{category}: <b>{count}</b>\n"
-                
-                # Последние источники
-                recent_sources = session.query(NewsSource).filter(NewsSource.is_active == True).limit(5).all()
-                if recent_sources:
-                    stats += f"\n📡 Активные источники: <b>{len(recent_sources)}</b>\n"
-                    for source in recent_sources:
-                        stats += f"   • {source.name}\n"
-                
-                return stats
-        except Exception as e:
-            logger.error(f"Ошибка получения статистики: {e}")
-            return "❌ Ошибка получения статистики"
-    
-    def send_news_with_media(self, chat_id: int, news_id: int) -> bool:
-        """Отправка конкретной новости с медиа"""
-        try:
-            with get_db_session() as session:
-                news = session.query(NewsItem).filter(NewsItem.id == news_id).first()
-                
-                if not news:
-                    self.send_message(chat_id, "❌ Новость не найдена")
-                    return False
-                
-                # Формируем текст новости
-                text = f"📰 <b>{news.title}</b>\n\n"
-                
-                if news.content_html:
-                    # Убираем HTML теги для Telegram
-                    import re
-                    clean_content = re.sub(r'<[^>]+>', '', news.content_html)
-                    text += f"{clean_content[:500]}...\n\n" if len(clean_content) > 500 else f"{clean_content}\n\n"
-                elif news.content:
-                    text += f"{news.content[:500]}...\n\n" if len(news.content) > 500 else f"{news.content}\n\n"
-                
-                text += f"📍 Источник: {news.source.name if news.source else 'Unknown'}\n"
-                text += f"📅 Дата: {news.publish_date.strftime('%d.%m.%Y %H:%M')}\n"
-                text += f"🏷️ Категория: #{news.category or 'general'}\n"
-                
-                if news.link:
-                    text += f"🔗 <a href='{news.link}'>Читать полностью</a>"
-                
-                # Если есть медиа, отправляем с фото
-                if news.media and isinstance(news.media, list) and len(news.media) > 0:
-                    media_item = news.media[0]
-                    if media_item.get('type') == 'photo' and media_item.get('url'):
-                        return self.send_photo(chat_id, media_item['url'], text)
-                
-                # Иначе отправляем просто текст
-                return self.send_message(chat_id, text)
-                
-        except Exception as e:
-            logger.error(f"Ошибка отправки новости: {e}")
-            return False
-    
-    def handle_command(self, chat_id: int, command: str, args: List[str] = None) -> bool:
-        """Обработка команд бота"""
+    def handle_command(self, chat_id: int, command: str, args: List[str]):
+        """Обработка команд"""
         try:
             if command == "/start":
-                welcome_text = """
-🤖 <b>Добро пожаловать в Gift Propaganda News Bot!</b>
+                self.send_start_message(chat_id)
+            elif command == "/news":
+                self.send_news_summary(chat_id, 5)
+            elif command == "/nft":
+                self.send_news_by_category(chat_id, "nft", 5)
+            elif command == "/crypto":
+                self.send_news_by_category(chat_id, "crypto", 5)
+            elif command == "/gifts":
+                self.send_news_by_category(chat_id, "gifts", 5)
+            elif command == "/tech":
+                self.send_news_by_category(chat_id, "tech", 5)
+            elif command == "/stats":
+                self.send_stats(chat_id)
+            elif command == "/help":
+                self.send_help_message(chat_id)
+            elif command == "/publish":
+                self.publish_to_channel(chat_id)
+            else:
+                self.send_message(chat_id, "❓ Неизвестная команда. Используйте /help для списка команд.")
+                
+        except Exception as e:
+            logger.error(f"Ошибка обработки команды {command}: {e}")
+            self.send_message(chat_id, "❌ Произошла ошибка при обработке команды")
+    
+    def send_start_message(self, chat_id: int):
+        """Отправка приветственного сообщения"""
+        text = """
+🎁 <b>Добро пожаловать в Gift Propaganda News Bot!</b>
 
-📰 Я помогу вам получать свежие новости из канала @nextgen_NFT и других источников.
+Я помогу вам быть в курсе последних новостей в мире:
+• 🎁 Подарки и акции
+• 💰 Криптовалюты
+• 🖼️ NFT и цифровое искусство
+• 💻 Технологии
 
-<b>Доступные команды:</b>
-/start - Показать это сообщение
+📰 <b>Команды:</b>
 /news - Последние новости
 /nft - Новости NFT
 /crypto - Крипто новости
+/gifts - Подарки и акции
+/tech - Технологии
 /stats - Статистика
+/publish - Опубликовать в канал
 /help - Помощь
 
-Нажмите на кнопки ниже для быстрого доступа к новостям!
+Бот автоматически обновляет новости каждые 5 минут!
 """
-                keyboard = [
-                    [{"text": "📰 Последние новости", "callback_data": "news"}],
-                    [{"text": "🖼️ NFT", "callback_data": "nft"}, {"text": "₿ Крипто", "callback_data": "crypto"}],
-                    [{"text": "📊 Статистика", "callback_data": "stats"}]
-                ]
-                return self.send_inline_keyboard(chat_id, welcome_text, keyboard)
-            
-            elif command == "/news":
-                text = self.get_news_summary(5)
-                return self.send_message(chat_id, text)
-            
-            elif command == "/nft":
-                text = self.get_news_by_category("nft", 5)
-                return self.send_message(chat_id, text)
-            
-            elif command == "/crypto":
-                text = self.get_news_by_category("crypto", 5)
-                return self.send_message(chat_id, text)
-            
-            elif command == "/stats":
-                text = self.get_news_stats()
-                return self.send_message(chat_id, text)
-            
-            elif command == "/help":
-                help_text = """
-❓ <b>Помощь по использованию бота</b>
+        self.send_message(chat_id, text)
+    
+    def send_help_message(self, chat_id: int):
+        """Отправка справки"""
+        text = """
+📚 <b>Справка по командам:</b>
 
-<b>Команды:</b>
-/news - Показать последние новости
-/nft - Новости из категории NFT
-/crypto - Криптовалютные новости
+/news - Показать последние 5 новостей
+/nft - Новости NFT и цифрового искусства
+/crypto - Новости криптовалют и блокчейна
+/gifts - Подарки, акции и промокоды
+/tech - Новости технологий и IT
 /stats - Статистика новостей
+/publish - Опубликовать новости в канал
+/help - Показать эту справку
 
-<b>Автоматические обновления:</b>
-Бот проверяет новые посты каждые 5 минут и автоматически добавляет их в базу данных.
-
-<b>Источники:</b>
-• @nextgen_NFT - основной канал
-• RSS источники: VC.ru, CoinDesk, Cointelegraph, Habr NFT
-
-По всем вопросам обращайтесь к администратору.
+💡 <b>Советы:</b>
+• Используйте команды для получения новостей по категориям
+• Бот автоматически обновляет новости
+• Все ссылки ведут на оригинальные источники
 """
-                return self.send_message(chat_id, help_text)
+        self.send_message(chat_id, text)
+    
+    def send_news_summary(self, chat_id: int, limit: int = 5, category: str = None):
+        """Отправка сводки новостей"""
+        try:
+            db = get_db_session()
             
-            else:
-                return self.send_message(chat_id, "❓ Неизвестная команда. Используйте /help для справки.")
+            query = db.query(NewsItem)
+            if category and category != "all":
+                query = query.filter(NewsItem.category == category)
+            
+            news_items = query.order_by(NewsItem.publish_date.desc()).limit(limit).all()
+            
+            if not news_items:
+                self.send_message(chat_id, "📭 Новостей пока нет")
+                return
+            
+            text = f"📰 <b>Последние новости"
+            if category:
+                text += f" ({category})"
+            text += ":</b>\n\n"
+            
+            for i, news in enumerate(news_items, 1):
+                text += f"{i}. <b>{news.title}</b>\n"
+                text += f"📅 {news.publish_date.strftime('%d.%m %H:%M')}\n"
+                text += f"🏷️ {news.category}\n"
+                text += f"🔗 <a href='{news.link}'>Читать</a>\n\n"
+            
+            self.send_message(chat_id, text)
+            
+        except Exception as e:
+            logger.error(f"Ошибка отправки сводки новостей: {e}")
+            self.send_message(chat_id, "❌ Ошибка получения новостей")
+        finally:
+            if 'db' in locals():
+                db.close()
+    
+    def send_news_by_category(self, chat_id: int, category: str, limit: int = 5):
+        """Отправка новостей по категории"""
+        self.send_news_summary(chat_id, limit, category)
+    
+    def send_stats(self, chat_id: int):
+        """Отправка статистики"""
+        try:
+            db = get_db_session()
+            
+            total_news = db.query(NewsItem).count()
+            
+            # Статистика по категориям
+            categories_stats = {}
+            categories = db.query(NewsItem.category).distinct().all()
+            
+            for cat in categories:
+                if cat[0]:
+                    count = db.query(NewsItem).filter(NewsItem.category == cat[0]).count()
+                    categories_stats[cat[0]] = count
+            
+            text = "📊 <b>Статистика новостей:</b>\n\n"
+            text += f"📰 Всего новостей: {total_news}\n\n"
+            
+            for category, count in categories_stats.items():
+                emoji = {
+                    'gifts': '🎁',
+                    'crypto': '💰',
+                    'nft': '🖼️',
+                    'tech': '💻',
+                    'community': '👥'
+                }.get(category, '📢')
+                text += f"{emoji} {category}: {count}\n"
+            
+            self.send_message(chat_id, text)
+            
+        except Exception as e:
+            logger.error(f"Ошибка отправки статистики: {e}")
+            self.send_message(chat_id, "❌ Ошибка получения статистики")
+        finally:
+            if 'db' in locals():
+                db.close()
+    
+    def get_news_summary(self, limit: int = 5, category: str = None) -> str:
+        """Получение сводки новостей в виде текста"""
+        try:
+            db = get_db_session()
+            
+            query = db.query(NewsItem)
+            if category and category != "all":
+                query = query.filter(NewsItem.category == category)
+            
+            news_items = query.order_by(NewsItem.publish_date.desc()).limit(limit).all()
+            
+            if not news_items:
+                return "📭 Новостей пока нет"
+            
+            text = f"📰 <b>Последние новости"
+            if category:
+                text += f" ({category})"
+            text += ":</b>\n\n"
+            
+            for i, news in enumerate(news_items, 1):
+                text += f"{i}. <b>{news.title}</b>\n"
+                text += f"📅 {news.publish_date.strftime('%d.%m %H:%M')}\n"
+                text += f"🏷️ {news.category}\n"
+                text += f"🔗 <a href='{news.link}'>Читать</a>\n\n"
+            
+            return text
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения сводки новостей: {e}")
+            return "❌ Ошибка получения новостей"
+        finally:
+            if 'db' in locals():
+                db.close()
+    
+    def get_stats(self) -> str:
+        """Получение статистики в виде текста"""
+        try:
+            db = get_db_session()
+            
+            total_news = db.query(NewsItem).count()
+            
+            # Статистика по категориям
+            categories_stats = {}
+            categories = db.query(NewsItem.category).distinct().all()
+            
+            for cat in categories:
+                if cat[0]:
+                    count = db.query(NewsItem).filter(NewsItem.category == cat[0]).count()
+                    categories_stats[cat[0]] = count
+            
+            text = "📊 <b>Статистика новостей:</b>\n\n"
+            text += f"📰 Всего новостей: {total_news}\n\n"
+            
+            for category, count in categories_stats.items():
+                emoji = {
+                    'gifts': '🎁',
+                    'crypto': '💰',
+                    'nft': '🖼️',
+                    'tech': '💻',
+                    'community': '👥'
+                }.get(category, '📢')
+                text += f"{emoji} {category}: {count}\n"
+            
+            return text
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения статистики: {e}")
+            return "❌ Ошибка получения статистики"
+        finally:
+            if 'db' in locals():
+                db.close()
+    
+    def publish_to_channel(self, chat_id: int):
+        """Публикация новостей в канал"""
+        try:
+            from services.auto_publisher import auto_publisher
+            
+            # Запускаем публикацию напрямую
+            import asyncio
+            
+            # Создаем новую задачу для публикации
+            async def publish_task():
+                try:
+                    await auto_publisher.publish_batch(force=True)
+                    self.send_message(chat_id, "✅ Публикация новостей в канал завершена!")
+                except Exception as e:
+                    logger.error(f"Ошибка в задаче публикации: {e}")
+                    self.send_message(chat_id, f"❌ Ошибка публикации: {str(e)}")
+            
+            # Запускаем задачу
+            asyncio.create_task(publish_task())
+            self.send_message(chat_id, "🚀 Публикация новостей в канал запущена...")
                 
         except Exception as e:
-            logger.error(f"Ошибка обработки команды: {e}")
-            return self.send_message(chat_id, "❌ Произошла ошибка при обработке команды")
+            logger.error(f"Ошибка публикации в канал: {e}")
+            self.send_message(chat_id, "❌ Ошибка при публикации в канал")
 
-# Создаем глобальный экземпляр бота
+async def setup_webhook():
+    """Установка webhook для Telegram бота"""
+    try:
+        webhook_url = f"{WEBHOOK_URL}/telegram/webhook"
+        logger.info(f"Устанавливаем webhook: {webhook_url}")
+        
+        url = f"https://api.telegram.org/bot{TOKEN}/setWebhook"
+        data = {
+            "url": webhook_url,
+            "allowed_updates": ["message", "callback_query"]
+        }
+        
+        response = requests.post(url, json=data, timeout=10)
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("ok"):
+                logger.info("Webhook установлен успешно")
+                return True
+            else:
+                logger.error(f"Ошибка установки webhook: {result}")
+                return False
+        else:
+            logger.error(f"Ошибка HTTP при установке webhook: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Ошибка установки webhook: {e}")
+        return False
+
+# Создаем экземпляр бота
 bot = TelegramBot() 

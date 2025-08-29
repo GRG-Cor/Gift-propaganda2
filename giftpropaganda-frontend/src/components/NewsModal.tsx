@@ -1,582 +1,288 @@
-import React, { useEffect } from 'react';
+import React, { useState } from 'react';
 import styled from 'styled-components';
-import MediaViewer from './MediaViewer';
-import TelegramWebApp from '../telegram/TelegramWebApp';
-import HtmlContent from './HtmlContent';
 import { NewsItem } from '../types';
-import { formatTimeAgo } from '../utils/formatters';
+import { formatDate } from '../utils/formatters';
+import HtmlContent from './HtmlContent';
+import MediaViewer from './MediaViewer';
 
-interface NewsModalProps {
-    news: NewsItem;
-    isOpen: boolean;
-    onClose: () => void;
-}
-
-const ModalOverlay = styled.div<{ $isOpen: boolean }>`
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.9);
-    backdrop-filter: blur(10px);
-    z-index: 1000;
-    opacity: ${props => props.$isOpen ? 1 : 0};
-    visibility: ${props => props.$isOpen ? 'visible' : 'hidden'};
-    transition: all 0.3s ease;
-`;
-
-const ModalContainer = styled.div<{ $isOpen: boolean }>`
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    background: var(--tg-theme-bg-color, #0f0f0f);
-    color: var(--tg-theme-text-color, #ffffff);
-    transform: translateY(${props => props.$isOpen ? '0' : '100%'});
-    transition: transform 0.3s ease;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-`;
-
-const ModalHeader = styled.div`
-    position: sticky;
-    top: 0;
-    background: var(--tg-theme-bg-color, #0f0f0f);
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--tg-theme-hint-color, #333);
-    backdrop-filter: blur(10px);
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-`;
-
-const BackButton = styled.button`
-    background: none;
-    border: none;
-    color: var(--tg-theme-button-color, #0088cc);
-    font-size: 16px;
-    cursor: pointer;
-    padding: 8px;
-    margin: -8px;
-    border-radius: 6px;
-    transition: background 0.2s ease;
-
-    &:hover {
-        background: var(--tg-theme-secondary-bg-color, #1a1a1a);
-    }
-`;
-
-const ShareButton = styled.button`
-    background: none;
-    border: none;
-    color: var(--tg-theme-text-color, #ffffff);
-    font-size: 16px;
-    cursor: pointer;
-    padding: 8px;
-    margin: -8px;
-    border-radius: 6px;
-    transition: background 0.2s ease;
-
-    &:hover {
-        background: var(--tg-theme-secondary-bg-color, #1a1a1a);
-    }
+const ModalOverlay = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 20px;
 `;
 
 const ModalContent = styled.div`
-    flex: 1;
-    padding: 0 12px 40px 12px;
-    max-width: 100%;
-    margin: 0 auto;
-    width: 100%;
-    
-    @media (min-width: 768px) {
-        padding: 0 16px 40px 16px;
-        max-width: 800px;
-    }
+  background: var(--tg-theme-bg-color, #1a1a1a);
+  border-radius: 16px;
+  max-width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+  width: 100%;
+  
+  @media (min-width: 768px) {
+    width: 600px;
+  }
 `;
 
-const ArticleHeader = styled.div`
-    margin: 20px 0;
+const ModalHeader = styled.div`
+  padding: 20px 20px 0 20px;
+  position: sticky;
+  top: 0;
+  background: var(--tg-theme-bg-color, #1a1a1a);
+  z-index: 10;
 `;
 
-const CategoryBadge = styled.span`
-    display: inline-block;
-    padding: 4px 8px;
-    background: var(--tg-theme-button-color, #0088cc);
-    color: var(--tg-theme-button-text-color, #ffffff);
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 500;
-    margin-bottom: 12px;
+const CloseButton = styled.button`
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: var(--tg-theme-hint-color, #999);
+  font-size: 24px;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+  
+  &:hover {
+    background: var(--tg-theme-secondary-bg-color, #333);
+  }
 `;
 
-const ArticleTitle = styled.h1`
-    font-size: 24px;
-    font-weight: 700;
-    line-height: 1.3;
-    margin: 0 0 16px 0;
-    color: var(--tg-theme-text-color, #ffffff);
+const Title = styled.h1`
+  margin: 0 0 12px 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--tg-theme-text-color, #ffffff);
+  padding-right: 40px;
 `;
 
-const ArticleSubtitle = styled.p`
-    font-size: 16px;
-    line-height: 1.5;
-    color: var(--tg-theme-hint-color, #999);
-    margin: 0 0 20px 0;
-`;
-
-const ArticleMeta = styled.div`
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 24px;
-    font-size: 13px;
-    color: var(--tg-theme-hint-color, #888);
-    flex-wrap: wrap;
+const MetaInfo = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: var(--tg-theme-hint-color, #999);
 `;
 
 const MetaItem = styled.span`
-    display: flex;
-    align-items: center;
-    gap: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 `;
 
-const ArticleContent = styled.div`
-    font-size: 16px;
-    line-height: 1.6;
-    color: var(--tg-theme-text-color, #ffffff);
-
-    p {
-        margin: 0 0 16px 0;
+const CategoryBadge = styled.span<{ category: string }>`
+  background: ${props => {
+    switch (props.category) {
+      case 'gifts': return 'linear-gradient(135deg, #ff6b6b, #ff8e8e)';
+      case 'crypto': return 'linear-gradient(135deg, #4ecdc4, #44a08d)';
+      case 'nft': return 'linear-gradient(135deg, #a8edea, #fed6e3)';
+      case 'tech': return 'linear-gradient(135deg, #667eea, #764ba2)';
+      case 'community': return 'linear-gradient(135deg, #f093fb, #f5576c)';
+      default: return 'linear-gradient(135deg, #667eea, #764ba2)';
     }
-
-    h2, h3, h4 {
-        margin: 24px 0 12px 0;
-        color: var(--tg-theme-text-color, #ffffff);
-    }
-
-    ul, ol {
-        margin: 0 0 16px 0;
-        padding-left: 20px;
-    }
-
-    blockquote {
-        margin: 16px 0;
-        padding: 12px 16px;
-        background: var(--tg-theme-secondary-bg-color, #1a1a1a);
-        border-left: 4px solid var(--tg-theme-button-color, #0088cc);
-        border-radius: 0 4px 4px 0;
-    }
-
-    code {
-        background: var(--tg-theme-secondary-bg-color, #1a1a1a);
-        padding: 2px 4px;
-        border-radius: 4px;
-        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-        font-size: 14px;
-    }
-
-    img {
-        max-width: 100%;
-        height: auto;
-        border-radius: 8px;
-        margin: 16px 0;
-        display: block;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        transition: transform 0.2s ease;
-        
-        &:hover {
-            transform: scale(1.02);
-        }
-        
-        /* Обработка ошибок загрузки изображений */
-        &[src*="cointelegraph.com"],
-        &[src*="habrastorage.org"] {
-            /* Добавляем специальные стили для внешних изображений */
-            border: 1px solid var(--tg-theme-hint-color, #333);
-        }
-    }
-    
-    /* Стили для изображений с ошибками загрузки */
-    img:not([src]), img[src=""], img[src*="data:image/svg+xml"] {
-        display: none;
-    }
-    
-    video {
-        max-width: 100%;
-        height: auto;
-        border-radius: 8px;
-        margin: 16px 0;
-        display: block;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    }
-
-    a {
-        color: var(--tg-theme-button-color, #0088cc);
-        text-decoration: none;
-        
-        &:hover {
-            text-decoration: underline;
-        }
-    }
+  }};
+  color: white;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
 `;
 
-const InteractionBar = styled.div`
-    margin-top: 32px;
-    padding: 16px 0;
-    border-top: 1px solid var(--tg-theme-hint-color, #333);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+const ModalBody = styled.div`
+  padding: 0 20px 20px 20px;
 `;
 
-const InteractionButtons = styled.div`
-    display: flex;
-    gap: 20px;
+const Content = styled.div`
+  line-height: 1.6;
+  color: var(--tg-theme-text-color, #ffffff);
+  margin-bottom: 20px;
 `;
 
-const InteractionButton = styled.button`
-    background: none;
-    border: none;
-    color: var(--tg-theme-hint-color, #888);
-    font-size: 14px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 12px;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-
-    &:hover {
-        background: var(--tg-theme-secondary-bg-color, #1a1a1a);
-        color: var(--tg-theme-text-color, #ffffff);
-    }
-
-    &.active {
-        color: var(--tg-theme-button-color, #0088cc);
-    }
+const SourceLink = styled.a`
+  color: var(--tg-theme-link-color, #0088cc);
+  text-decoration: none;
+  font-weight: 500;
+  
+  &:hover {
+    text-decoration: underline;
+  }
 `;
 
-
-
-const DescriptionSection = styled.div`
-    margin: 24px 0;
-    padding: 16px;
-    background: var(--tg-theme-secondary-bg-color, #1a1a1a);
-    border-radius: 12px;
-    border: 1px solid var(--tg-theme-hint-color, #333);
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-    overflow: hidden;
-    word-wrap: break-word;
-    
-    @media (min-width: 768px) {
-        padding: 20px;
-    }
-`;
-
-const DescriptionTitle = styled.h3`
-    font-size: 18px;
-    font-weight: 600;
-    margin: 0 0 16px 0;
-    color: var(--tg-theme-text-color, #ffffff);
-`;
-
-const LinksContainer = styled.div`
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    width: 100%;
-    max-width: 100%;
-`;
-
-const LinkItem = styled.a`
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--tg-theme-button-color, #0088cc);
-    text-decoration: none;
-    font-size: 14px;
-    font-weight: 500;
-    padding: 8px 12px;
-    background: rgba(0, 136, 204, 0.1);
-    border-radius: 8px;
-    transition: all 0.2s ease;
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-    overflow: hidden;
-    word-wrap: break-word;
-
-    &:hover {
-        background: rgba(0, 136, 204, 0.2);
-        transform: translateY(-1px);
-    }
-`;
-
-const LinkIcon = styled.span`
-    font-size: 16px;
-`;
-
-const LinkText = styled.span`
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-`;
-
-const HighlightText = styled.span`
-    color: #ff6b6b;
-    font-weight: 600;
-`;
-
-const ImportantNotice = styled.div`
-    margin-top: 16px;
-    padding: 12px;
-    background: rgba(255, 107, 107, 0.1);
-    border: 1px solid rgba(255, 107, 107, 0.3);
-    border-radius: 8px;
-    font-size: 14px;
-    line-height: 1.5;
-    color: var(--tg-theme-text-color, #ffffff);
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-    overflow: hidden;
-    word-wrap: break-word;
-`;
-
-const SourceInfo = styled.div`
-  margin-top: 20px;
+const PublishButton = styled.button<{ isPublished: boolean }>`
+  background: ${props => props.isPublished 
+    ? 'var(--tg-theme-secondary-bg-color, #333)' 
+    : 'var(--tg-theme-button-color, #0088cc)'};
+  color: var(--tg-theme-button-text-color, #ffffff);
+  border: none;
+  border-radius: 8px;
+  padding: 12px 20px;
   font-size: 14px;
-  color: var(--tg-theme-hint-color, #888);
+  font-weight: 500;
+  cursor: ${props => props.isPublished ? 'default' : 'pointer'};
+  opacity: ${props => props.isPublished ? 0.6 : 1};
+  transition: all 0.2s ease;
+  width: 100%;
+  margin-top: 16px;
+  
+  &:hover:not(:disabled) {
+    opacity: 0.8;
+  }
+  
+  &:disabled {
+    cursor: not-allowed;
+  }
 `;
 
-const NewsModal: React.FC<NewsModalProps> = ({news, isOpen, onClose}) => {
-    // Добавляем отладочные логи при получении новости
-    console.log('🔍 NewsModal получил новость:', news);
-    console.log('🔍 news.id:', news.id);
-    console.log('🔍 news.title:', news.title);
-    console.log('🔍 news.content_html:', news.content_html);
-    console.log('🔍 news.content_html тип:', typeof news.content_html);
-    console.log('🔍 news.content_html длина:', news.content_html?.length || 0);
+const LoadingSpinner = styled.div`
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid transparent;
+  border-top: 2px solid currentColor;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-right: 8px;
+  
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
 
-    useEffect(() => {
-        const handleEscape = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
-                onClose();
+interface NewsModalProps {
+  news: NewsItem;
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+const NewsModal: React.FC<NewsModalProps> = ({ news, isOpen, onClose }) => {
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [isPublished, setIsPublished] = useState(false);
+
+  if (!isOpen) return null;
+
+  const handlePublish = async () => {
+    if (isPublished || isPublishing) return;
+    
+    setIsPublishing(true);
+    try {
+      const response = await fetch(`/api/news/${news.id}/publish`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        setIsPublished(true);
+        // Можно показать уведомление об успешной публикации
+        console.log('Новость опубликована:', result);
+      } else {
+        const error = await response.json();
+        console.error('Ошибка публикации:', error);
+        // Можно показать уведомление об ошибке
+      }
+    } catch (error) {
+      console.error('Ошибка при публикации:', error);
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const handleOverlayClick = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  };
+
+  return (
+    <ModalOverlay onClick={handleOverlayClick}>
+      <ModalContent>
+        <ModalHeader>
+          <CloseButton onClick={onClose}>&times;</CloseButton>
+          <Title>{news.title}</Title>
+          <MetaInfo>
+            <MetaItem>
+              📅 {formatDate(news.publish_date)}
+            </MetaItem>
+            {news.category && (
+              <CategoryBadge category={news.category}>
+                {news.category}
+              </CategoryBadge>
+            )}
+            {news.reading_time && (
+              <MetaItem>
+                ⏱️ {news.reading_time} мин
+              </MetaItem>
+            )}
+            {news.views_count && (
+              <MetaItem>
+                👀 {news.views_count}
+              </MetaItem>
+            )}
+            {news.author && (
+              <MetaItem>
+                👤 {news.author}
+              </MetaItem>
+            )}
+          </MetaInfo>
+        </ModalHeader>
+        
+        <ModalBody>
+          {news.media && news.media.length > 0 && (
+            <MediaViewer media={news.media} />
+          )}
+          
+          <Content>
+            {news.content_html ? (
+              <HtmlContent content={news.content_html} />
+            ) : (
+              <p>{news.content}</p>
+            )}
+          </Content>
+          
+          {news.link && (
+            <SourceLink href={news.link} target="_blank" rel="noopener noreferrer">
+              📰 Читать источник
+            </SourceLink>
+          )}
+          
+          <PublishButton 
+            isPublished={isPublished}
+            onClick={handlePublish}
+            disabled={isPublishing || isPublished}
+          >
+            {isPublishing && <LoadingSpinner />}
+            {isPublished 
+              ? '✅ Опубликовано в канал' 
+              : isPublishing 
+                ? 'Публикация...' 
+                : '📢 Опубликовать в канал'
             }
-        };
-
-        if (isOpen) {
-            document.addEventListener('keydown', handleEscape);
-            document.body.style.overflow = 'hidden';
-        }
-
-        return () => {
-            document.removeEventListener('keydown', handleEscape);
-            document.body.style.overflow = 'unset';
-        };
-    }, [isOpen, onClose]);
-
-    const handleBackClick = () => {
-        onClose();
-    };
-
-    const handleShare = () => {
-        if (navigator.share) {
-            navigator.share({
-                title: news.title,
-                text: news.subtitle || news.content,
-                url: news.link
-            });
-        } else {
-            navigator.clipboard.writeText(news.link || '');
-        }
-    };
-
-    const handleInteraction = (type: string) => {
-        console.log(`Interaction: ${type}`);
-    };
-
-    // Добавляем отладочные логи
-    console.log('🔍 NewsModal рендерится');
-    console.log('🔍 news объект:', news);
-    console.log('🔍 content_html:', news.content_html);
-    console.log('🔍 content_html длина:', news.content_html?.length || 0);
-    console.log('🔍 Есть изображения в content_html:', news.content_html?.includes('<img') || false);
-
-    return (
-        <ModalOverlay $isOpen={isOpen} onClick={onClose}>
-            <ModalContainer $isOpen={isOpen} onClick={(e) => e.stopPropagation()}>
-                <ModalHeader>
-                    <BackButton onClick={handleBackClick}>← Назад</BackButton>
-                    <ShareButton onClick={handleShare}>📤</ShareButton>
-                </ModalHeader>
-
-                <ModalContent>
-                    <ArticleHeader>
-                        <CategoryBadge>{news.category.toUpperCase()}</CategoryBadge>
-                        <ArticleTitle>{news.title}</ArticleTitle>
-                        {news.subtitle && <ArticleSubtitle>{news.subtitle}</ArticleSubtitle>}
-
-                        <ArticleMeta>
-                            {news.author && <MetaItem>👤 {news.author}</MetaItem>}
-                            <MetaItem>🕒 {formatTimeAgo(news.publish_date)}</MetaItem>
-                            {news.reading_time && (
-                                <MetaItem>📖 {news.reading_time} мин чтения</MetaItem>
-                            )}
-                            {news.views_count !== undefined && (
-                                <MetaItem>👁️ {news.views_count} просмотров</MetaItem>
-                            )}
-                        </ArticleMeta>
-                    </ArticleHeader>
-
-                    {/* Медиа из источника (если есть) */}
-                    {news.media && news.media.length > 0 && (
-                        <div style={{ 
-                            marginBottom: '20px',
-                            padding: '15px',
-                            backgroundColor: 'var(--tg-theme-secondary-bg-color, #1a1a1a)',
-                            borderRadius: '8px',
-                            border: '1px solid var(--tg-theme-hint-color, #333)'
-                        }}>
-                            <div style={{ 
-                                marginBottom: '10px',
-                                fontSize: '14px',
-                                color: 'var(--tg-theme-hint-color, #888)',
-                                fontWeight: '500'
-                            }}>
-                                📷 Медиа из источника:
-                            </div>
-                            {news.media.map((mediaItem, index) => (
-                                <MediaViewer key={index} mediaItem={mediaItem}/>
-                            ))}
-                        </div>
-                    )}
-
-                    {(news.content_html || news.content) && (
-                        <>
-                            {news.content_html ? (
-                                <>
-                                    {console.log('🔍 Отображаем content_html через HtmlContent')}
-                                    <HtmlContent html={news.content_html} />
-                                    
-                                    {/* Если content_html короткий, показываем также content */}
-                                    {news.content_html.length < 1000 && news.content && news.content.length > news.content_html.length && (
-                                        <div style={{ marginTop: '20px', padding: '15px', backgroundColor: 'var(--tg-theme-secondary-bg-color, #1a1a1a)', borderRadius: '8px', border: '1px solid var(--tg-theme-hint-color, #333)' }}>
-                                            <h4 style={{ marginBottom: '10px', color: 'var(--tg-theme-hint-color, #888)' }}>📄 Дополнительный текст:</h4>
-                                            <p style={{ lineHeight: '1.6', color: 'var(--tg-theme-text-color, #ffffff)' }}>{news.content}</p>
-                                        </div>
-                                    )}
-                                </>
-                            ) : (
-                                <>
-                                    {console.log('🔍 Отображаем content (plain text)')}
-                                    <ArticleContent>
-                                        {news.content}
-                                    </ArticleContent>
-                                </>
-                            )}
-                            
-                            {/* Кнопка "Читать на сайте" если контент обрезан или короткий */}
-                            {((news.content_html && (news.content_html.includes('Читать далее') || 
-                              news.content_html.includes('читать далее') ||
-                              news.content_html.includes('Read more') ||
-                              news.content_html.includes('read more') ||
-                              news.content_html.includes('#habracut') ||
-                              news.content_html.length < 1000)) ||
-                              (news.content && news.content.length < 500)) && news.link && (
-                                <div style={{ marginTop: '20px', textAlign: 'center' }}>
-                                    <div style={{ 
-                                        marginBottom: '12px', 
-                                        fontSize: '14px', 
-                                        color: 'var(--tg-theme-hint-color, #888)',
-                                        fontStyle: 'italic'
-                                    }}>
-                                        ⚠️ Это сокращенная версия статьи
-                                    </div>
-                                    <a 
-                                        href={news.link} 
-                                        target="_blank" 
-                                        rel="noopener noreferrer"
-                                        style={{
-                                            display: 'inline-block',
-                                            padding: '12px 24px',
-                                            backgroundColor: 'var(--tg-theme-button-color, #0088cc)',
-                                            color: 'var(--tg-theme-button-text-color, #ffffff)',
-                                            textDecoration: 'none',
-                                            borderRadius: '8px',
-                                            fontWeight: '500',
-                                            fontSize: '16px'
-                                        }}
-                                    >
-                                        📖 Читать полную статью на сайте
-                                    </a>
-                                </div>
-                            )}
-                        </>
-                    )}
-
-                    {/* Описание с ссылками */}
-                    <DescriptionSection>
-                        <DescriptionTitle>📋 Полезные ссылки</DescriptionTitle>
-                        
-                        <LinksContainer>
-                            <LinkItem href="https://t.me/source" target="_blank" rel="noopener noreferrer">
-                                <LinkIcon>💡</LinkIcon>
-                                <LinkText>Источник</LinkText>
-                            </LinkItem>
-                            
-                            <LinkItem href="https://t.me/nft_chat" target="_blank" rel="noopener noreferrer">
-                                <LinkIcon>🚀</LinkIcon>
-                                <LinkText>Чат для покупки/продажи NFT</LinkText>
-                            </LinkItem>
-                            
-                            <LinkItem href="https://t.me/portals" target="_blank" rel="noopener noreferrer">
-                                <LinkIcon>❤️</LinkIcon>
-                                <LinkText>Portals ❤️</LinkText>
-                            </LinkItem>
-                        </LinksContainer>
-
-                        <ImportantNotice>
-                            <HighlightText>‼️ На Portals теперь доступны розыгрыши!</HighlightText>
-                            <br />
-                            Запустить розыгрыш вы можете перейдя во вкладку профиль, а потом giveaways.
-                        </ImportantNotice>
-                    </DescriptionSection>
-
-                    {news.source?.name && (
-                        <SourceInfo>
-                            Источник:{" "}
-                            {news.source?.name}
-                        </SourceInfo>
-                    )}
-
-                    <InteractionBar>
-                        <InteractionButtons>
-                            <InteractionButton onClick={() => handleInteraction('like')}>
-                                🔥 +2
-                            </InteractionButton>
-                            <InteractionButton onClick={() => handleInteraction('comment')}>
-                                💬 0
-                            </InteractionButton>
-                            <InteractionButton onClick={() => handleInteraction('bookmark')}>
-                                🔖 3
-                            </InteractionButton>
-                        </InteractionButtons>
-                    </InteractionBar>
-                </ModalContent>
-            </ModalContainer>
-        </ModalOverlay>
-    );
+          </PublishButton>
+        </ModalBody>
+      </ModalContent>
+    </ModalOverlay>
+  );
 };
 
 export default NewsModal;

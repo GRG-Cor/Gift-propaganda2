@@ -63,6 +63,12 @@ class NewsItem(Base):
     subtitle = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Новые поля для автоматической публикации
+    is_published_to_channel = Column(Boolean, default=False)  # Опубликован ли пост в канал
+    published_to_channel_at = Column(DateTime, nullable=True)  # Когда был опубликован
+    telegram_message_id = Column(Integer, nullable=True)  # ID сообщения в Telegram канале
+    
     source = relationship("NewsSource")  # Для удобного доступа
 
 def get_db() -> Session:
